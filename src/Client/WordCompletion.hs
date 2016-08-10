@@ -17,6 +17,7 @@ import Data.Text (Text)
 import qualified Data.Text as Text
 import qualified Data.Set as Set
 import Data.Char
+import Data.Maybe (listToMaybe)
 import Data.List
 import Control.Lens
 import qualified Client.EditBox as Edit
@@ -77,20 +78,16 @@ instance         Prefix Identifier where isPrefix = idPrefix
 instance         Prefix Text       where isPrefix = Text.isPrefixOf
 instance Eq a => Prefix [a]        where isPrefix = isPrefixOf
 
-tabSearch :: (Ord a, Prefix a) => Bool -> a -> a -> [a] -> Maybe a
+tabSearch :: (Eq a, Prefix a) => Bool -> a -> a -> [a] -> Maybe a
 tabSearch isReversed pat cur vals
-  | Just next <- advanceFun cur valSet
-  , isPrefix pat next
-  = Just next
+  | Just next <- advanceFun candidates = Just next
+  | otherwise = listToMaybe candidates
 
-  | isReversed = find (isPrefix pat) (reverse (Set.toList valSet))
-
-  | otherwise  = do x <- Set.lookupGE pat valSet
-                    guard (isPrefix pat x)
-                    Just x
   where
-    valSet = Set.fromList vals
+    candidates | isReversed = filter (isPrefix pat) $ reverse vals
+               | otherwise  = filter (isPrefix pat) vals
 
-    advanceFun | isReversed = Set.lookupLT
-               | otherwise  = Set.lookupGT
-
+    advanceFun (x:y:xs)
+               | x == cur = Just y
+               | otherwise = advanceFun (y:xs)
+    advanceFun _ = Nothing

@@ -1,4 +1,4 @@
-{-# Language TemplateHaskell, BangPatterns, OverloadedStrings #-}
+{-# Language TemplateHaskell, BangPatterns, OverloadedStrings, LambdaCase #-}
 {-|
 Module      : Client.State
 Description : Primary client state type and update operations
@@ -63,6 +63,7 @@ module Client.State
   , retreatFocus
 
   ) where
+    -- import Debug.Trace (trace)
 
 import           Client.ChannelState
 import           Client.Configuration
@@ -78,6 +79,7 @@ import           Control.Concurrent.STM
 import           Control.DeepSeq
 import           Control.Lens
 import           Data.Foldable
+import           Data.List (nub, elemIndex, sort)
 import           Data.HashMap.Strict (HashMap)
 import qualified Data.HashMap.Strict as HashMap
 import           Data.HashSet (HashSet)
@@ -102,6 +104,7 @@ import           Text.Regex.TDFA
 import           Text.Regex.TDFA.String (compile)
 import           Text.Regex.TDFA.Text () -- RegexLike Regex Text orphan
 import           Network.Connection
+import           Data.Ord (Ordering(..), comparing)
 
 -- | Textual name of a network connection
 type NetworkName = Text
@@ -446,9 +449,19 @@ networkChannelList :: NetworkName -> ClientState -> [Identifier]
 networkChannelList network =
   views (clientConnection network . csChannels) HashMap.keys
 
+channelSpokeLast :: NetworkName -> Identifier -> ClientState -> [Identifier]
+channelSpokeLast network channel st =
+  let win = fromJust $ Map.lookup (view clientFocus st) (view clientWindows st)
+      mbodys = map (view wlBody) $ view winMessages win
+      nicks = mapMaybe (\case
+        IrcBody (Privmsg x _ _) -> Just $ userNick x
+        _ -> Nothing) mbodys
+   in nub nicks
+
 channelUserList :: NetworkName -> Identifier -> ClientState -> [Identifier]
-channelUserList network channel =
-  views (clientConnection network . csChannels . ix channel . chanUsers) HashMap.keys
+channelUserList network channel st =
+  let nicks = views (clientConnection network . csChannels . ix channel . chanUsers) HashMap.keys st
+      in channelSpokeLast network channel st ++ sort nicks
 
 changeFocus :: ClientFocus -> ClientState -> ClientState
 changeFocus focus
