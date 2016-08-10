@@ -79,7 +79,7 @@ import           Control.Concurrent.STM
 import           Control.DeepSeq
 import           Control.Lens
 import           Data.Foldable
-import           Data.List (nub, elemIndex, sort)
+import           Data.List (nub, sort)
 import           Data.HashMap.Strict (HashMap)
 import qualified Data.HashMap.Strict as HashMap
 import           Data.HashSet (HashSet)
@@ -104,7 +104,6 @@ import           Text.Regex.TDFA
 import           Text.Regex.TDFA.String (compile)
 import           Text.Regex.TDFA.Text () -- RegexLike Regex Text orphan
 import           Network.Connection
-import           Data.Ord (Ordering(..), comparing)
 
 -- | Textual name of a network connection
 type NetworkName = Text

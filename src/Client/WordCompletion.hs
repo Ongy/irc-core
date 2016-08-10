@@ -15,7 +15,6 @@ module Client.WordCompletion
 import Irc.Identifier
 import Data.Text (Text)
 import qualified Data.Text as Text
-import qualified Data.Set as Set
 import Data.Char
 import Data.Maybe (listToMaybe)
 import Data.List
