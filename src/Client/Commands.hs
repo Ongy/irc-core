@@ -29,11 +29,13 @@ import           Client.WordCompletion
 import           Control.Lens
 import           Control.Monad
 import           Data.Char
+import           Data.List (elemIndex)
 import           Data.List.Split
 import           Data.Foldable
 import           Data.HashSet (HashSet)
 import           Data.HashMap.Strict (HashMap)
 import qualified Data.HashMap.Strict as HashMap
+import qualified Data.IntMap as IM
 import           Data.Maybe (fromMaybe)
 import           Data.Text (Text)
 import qualified Data.Text as Text
@@ -138,35 +140,80 @@ executeCommand (Just isReversed) _ st
 
 executeCommand tabCompleteReversed str st =
   let (cmd, rest) = splitWord str
-      cmdTxt      = Text.toLower (Text.pack cmd) in
-  case HashMap.lookup cmdTxt commands of
+      cmdTxt      = Text.toLower (Text.pack cmd)
+      expanded    = expandArguments rest st in
+  case expanded of
+    Nothing -> commandFailure st
+    (Just args) -> case HashMap.lookup cmdTxt commands of
 
-    Just (ClientCommand exec tab) ->
-          maybe exec tab tabCompleteReversed
-            st rest
+      Just (ClientCommand exec tab) ->
+            maybe exec tab tabCompleteReversed
+              st args
 
-    Just (NetworkCommand exec tab)
-      | Just network <- views clientFocus focusNetwork st
-      , Just cs      <- preview (clientConnection network) st ->
-          maybe exec tab tabCompleteReversed
-            network cs st rest
+      Just (NetworkCommand exec tab)
+        | Just network <- views clientFocus focusNetwork st
+        , Just cs      <- preview (clientConnection network) st ->
+            maybe exec tab tabCompleteReversed
+              network cs st args
 
-    Just (ChannelCommand exec tab)
-      | ChannelFocus network channelId <- view clientFocus st
-      , Just cs <- preview (clientConnection network) st
-      , isChannelIdentifier cs channelId ->
-          maybe exec tab tabCompleteReversed
-            network cs channelId st rest
+      Just (ChannelCommand exec tab)
+        | ChannelFocus network channelId <- view clientFocus st
+        , Just cs <- preview (clientConnection network) st
+        , isChannelIdentifier cs channelId ->
+            maybe exec tab tabCompleteReversed
+              network cs channelId st args
 
-    Just (ChatCommand exec tab)
-      | ChannelFocus network channelId <- view clientFocus st
-      , Just cs <- preview (clientConnection network) st ->
-          maybe exec tab tabCompleteReversed
-            network cs channelId st rest
+      Just (ChatCommand exec tab)
+        | ChannelFocus network channelId <- view clientFocus st
+        , Just cs <- preview (clientConnection network) st ->
+            maybe exec tab tabCompleteReversed
+              network cs channelId st args
 
-    _ -> case tabCompleteReversed of
-           Nothing         -> commandFailure st
-           Just isReversed -> commandSuccess (nickTabCompletion isReversed st)
+      _ -> case tabCompleteReversed of
+             Nothing         -> commandFailure st
+             Just isReversed -> commandSuccess (nickTabCompletion isReversed st)
+
+type Arg = ClientState -> Maybe String
+arguments :: HashMap String Arg
+arguments = HashMap.fromList
+  [ ("Hi", const $ Just "Ho")
+  , ("mynick", getNick)
+  , ("channel", getChannelName)
+  ]
+
+getNick :: Arg
+getNick st = do
+  netName   <- focusNetwork $ view clientFocus st
+  netId     <- HashMap.lookup netName $ view clientNetworkMap st
+  connState <- IM.lookup netId $ view clientConnections st
+  let uinfo = view csUserInfo connState
+  return . Text.unpack . idText . userNick $ uinfo
+
+getChannelName :: Arg
+getChannelName st = case view clientFocus st of
+  ChannelFocus _ x -> return . Text.unpack . idText $ x
+  _                -> Nothing
+
+-- |Expand the text with information from the current state
+expandArguments :: String -> ClientState -> Maybe String
+expandArguments str st =
+  case break (== '$') str of
+    -- x == str
+    (x, []) -> Just x
+    -- ("pre", "$post")
+    (x, y) -> (x ++) <$> case y of
+                -- escape $$
+                '$':'$':xs -> ('$':) <$> expandArguments xs st
+                '$':'{':xs -> case break (== '}') xs of
+                              (ys, '}':zs) -> do
+                                fun <- HashMap.lookup ys arguments
+                                convert <- fun st
+                                rest <- expandArguments zs st
+                                return $ convert ++ rest
+                              -- there is no '}', so we abort
+                              (_, _) -> Nothing
+                -- not "${", don't do anything with the $
+                '$':xs -> ('$':) <$> expandArguments xs st
 
 -- Expands each alias to have its own copy of the command callbacks
 expandAliases :: [([a],b)] -> [(a,b)]
